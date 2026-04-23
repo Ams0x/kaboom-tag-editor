@@ -3,8 +3,8 @@ import pandas as pd
 import re
 
 st.set_page_config(page_title="KaBoom TCG 官方 Tag 神器", layout="wide")
-st.title("🏷️ KaBoom TCG 官方 Tag 自動化神器 (V3 全系列補齊版)")
-st.write("✅ 完美捕捉歷代 PTCG (sv/s/sm/ac/sc) | ✅ 智能拆解 OPCG 卡號 | ✅ 自動修正錯誤遊戲 Tag")
+st.title("🏷️ KaBoom TCG 官方 Tag 自動化神器 (V3 終極防炒車版)")
+st.write("✅ 優先讀取【PRB-02】/ [SV9a] 括號標記 | ✅ 解決 OPCG 復刻卡號衝突 | ✅ 支援 OP-13 連字號")
 
 uploaded_csv = st.file_uploader("📂 上傳 Shopify 產品 CSV", type=["csv"])
 
@@ -30,7 +30,6 @@ if st.button("🚀 根據 V3 指引一鍵補齊 Tags") and uploaded_csv:
             title_lower = title.lower()
             new_tags = set()
             
-            # 先讀取舊有 Tags，方便做自動修正
             existing_tags = []
             if existing_tags_str != 'nan' and existing_tags_str.strip():
                 existing_tags = [t.strip() for t in existing_tags_str.split(',') if t.strip()]
@@ -50,7 +49,6 @@ if st.button("🚀 根據 V3 指引一鍵補齊 Tags") and uploaded_csv:
                 new_tags.add('game-lorcana')
             elif is_opcg:
                 new_tags.add('game-opcg')
-                # 防呆：如果之前錯落咗 ptcg，即刻刪除
                 if 'game-ptcg' in existing_tags_lower:
                     existing_tags = [t for t in existing_tags if t.lower() != 'game-ptcg']
             elif '遊戲王' in title_lower or 'yugioh' in title_lower:
@@ -86,38 +84,45 @@ if st.button("🚀 根據 V3 指引一鍵補齊 Tags") and uploaded_csv:
             elif any(kw in title_lower for kw in ['卡盒', 'deckbox', '收納盒']):
                 new_tags.add('type-deckbox')
             
-            # 🎯 終極補底：如果無被歸類為周邊等，並且有卡號格式，就係單卡
             if not any(t in new_tags for t in ['type-boosterbox', 'type-giftbox', 'type-deckset', 'type-sleeve', 'type-mat', 'type-deckbox']):
                 if re.search(r'([A-Za-z]{1,4}\d{0,2}-\d{3}|\d{1,3}/\d{1,3})', title) or is_psa or 'sp卡' in title_lower or 'sr卡' in title_lower:
                     new_tags.add('type-single')
                     
-            # 品牌
             if 'dragon shield' in title_lower or 'dragonshield' in title_lower:
                 new_tags.add('brand-dragonshield')
             if '寶可夢' in title_lower and any(kw in title_lower for kw in ['卡套', '卡墊', '卡盒', '收納盒']):
                 new_tags.add('brand-pokemon')
 
             # ==========================================
-            # 4. 系列代號 (Set)
+            # 4. 系列代號 (Set) - 🌟 終極防炒車邏輯 🌟
             # ==========================================
             set_code = None
-            set_match = re.search(r'\[([A-Za-z0-9]+)\]', title)
-            if set_match:
-                set_code = set_match.group(1).lower()
-            else:
-                op_match = re.search(r'\b(op\d{2}|eb\d{2}|st\d{2}|prb\d{2})\b', title_lower)
+            
+            # 第一重最高優先級：搵括號 [SV9a] 或 【PRB-02】 或 【OP-13】
+            # 抽走入面嘅字，並刪除 "-" 號轉小楷
+            bracket_match = re.search(r'[\[【]([A-Za-z0-9\-]+)[\]】]', title)
+            if bracket_match:
+                raw_code = bracket_match.group(1).replace('-', '').lower()
+                # 確保唔係純中文括號，至少要包含英文字母
+                if re.search(r'[a-z]', raw_code):
+                    set_code = raw_code
+                    
+            # 如果標題冇明確括號，先啟動備用搜尋
+            if not set_code:
+                # 第二重：搵 OPCG 嘅 OP-13, PRB02 (無括號情況)
+                op_match = re.search(r'\b(op|eb|st|prb)-?(\d{2})\b', title_lower)
                 if op_match: 
-                    set_code = op_match.group(1).lower()
+                    set_code = f"{op_match.group(1)}{op_match.group(2)}"
                 else:
-                    # 🌟 升級：完美支援所有 PTCG 世代 (sv, s, sm, ac, sc 及其擴充包如 sv5af)
+                    # 第三重：搵 PTCG 嘅 sv9, sv11b (無括號情況)
                     ptcg_match = re.search(r'\b((?:sv|s|sm|ac|sc)\d+[a-z]{0,2})\b', title_lower)
                     if ptcg_match: 
-                        set_code = ptcg_match.group(1).lower()
+                        set_code = ptcg_match.group(1)
                     else:
-                        # 🌟 升級：智能拆解 OPCG 卡號 (例如 OP10-119 -> op10, P-001 -> p)
-                        card_match = re.search(r'\b([A-Za-z]{1,4}\d{0,2})-\d{3}\b', title)
+                        # 第四重：從單卡編號拆解 (例如 OP10-119 -> op10)
+                        card_match = re.search(r'\b([a-z]{1,4}\d{0,2})-\d{3}\b', title_lower)
                         if card_match:
-                            set_code = card_match.group(1).lower()
+                            set_code = card_match.group(1)
                         else:
                             # 終極防線：透過 Shopify 網址 Handle 提取
                             handle_parts = handle.split('-')
@@ -138,6 +143,6 @@ if st.button("🚀 根據 V3 指引一鍵補齊 Tags") and uploaded_csv:
 
         progress_bar.progress((index + 1) / len(df))
 
-    status_text.text("🎉 全部處理完成！所有漏網之魚（舊系列 / 特殊擴充包）已完美打上 set-！")
+    status_text.text("🎉 全部處理完成！復刻卡同連字號已完美修正！")
     csv = df.to_csv(index=False).encode('utf-8-sig')
     st.download_button(f"📥 下載 {download_filename}", csv, download_filename, "text/csv")
