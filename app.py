@@ -72,59 +72,42 @@ def detect_game(title_lower, existing_tags_lower):
     return games
 
 def detect_set(title, title_lower, handle):
-    """判斷系列 - 核心改進邏輯"""
-    set_code = None
-    
-    # 第一優先：搵括號內嘅代號 [SV9a] 或 【PRB-02】
+    # 第一優先：括號內代號 【PRB-02】或 [SV9a] — 完全唔理卡號
     bracket_match = re.search(r'[\[【]([A-Za-z]{1,4}-?\d{1,2}[A-Za-z]?)[\]】]', title)
     if bracket_match:
         raw = bracket_match.group(1).replace('-', '').lower()
         if re.search(r'[a-z]', raw):
-            set_code = raw
+            if raw in SET_MAP:
+                return SET_MAP[raw]
+            return f'set-{raw}'
     
-    # 第二優先：搵 OPCG 連字號格式 OP-13, PRB-02, EB-01
-    if not set_code:
-        opcg_match = re.search(r'\b(op|eb|st|prb)-?(\d{1,2})\b', title_lower)
-        if opcg_match:
-            prefix = opcg_match.group(1)
-            num = opcg_match.group(2).zfill(2)
-            set_code = f"{prefix}{num}"
+    # 第二優先：OPCG連字號格式 OP-13, PRB-02（只搵獨立單詞，唔係卡號一部分）
+    opcg_match = re.search(r'(?<!\w)(op|eb|st|prb)-(\d{1,2})(?!\d*-\d{3})', title_lower)
+    if opcg_match:
+        prefix = opcg_match.group(1)
+        num = opcg_match.group(2).zfill(2)
+        set_code = f"{prefix}{num}"
+        return SET_MAP.get(set_code, f'set-{set_code}')
     
-    # 第三優先：搵 PTCG 系列 sv9a, sv11b
-    if not set_code:
-        ptcg_match = re.search(r'\b(sv\d+[a-z]?|s\d+[a-z]?|sm\d+[a-z]?)\b', title_lower)
-        if ptcg_match:
-            set_code = ptcg_match.group(1)
+    # 第三優先：PTCG系列
+    ptcg_match = re.search(r'\b(sv\d+[a-z]?|s\d+[a-z]?|sm\d+[a-z]?)\b', title_lower)
+    if ptcg_match:
+        code = ptcg_match.group(1)
+        return SET_MAP.get(code, f'set-{code}')
     
-    # 第四優先：搵 M 系列 [M2], [M3], [M4]
-    if not set_code:
-        m_match = re.search(r'[\[【](m\d+[a-z]?)[\]】]', title_lower)
-        if m_match:
-            set_code = m_match.group(1)
-    
-    # 第五：從卡號拆解 PRB-019 -> prb, OP10-119 -> op10
-    if not set_code:
-        card_match = re.search(r'\b(op\d{2}|prb\d{2}|eb\d{2}|st\d{2})-\d{3}\b', title_lower)
-        if card_match:
-            set_code = card_match.group(1)
+    # 第四優先：M系列括號
+    m_match = re.search(r'[\[【](m\d+[a-z]?)[\]】]', title_lower)
+    if m_match:
+        code = m_match.group(1)
+        return SET_MAP.get(code, f'set-{code}')
     
     # 終極防線：Handle
-    if not set_code:
-        parts = handle.split('-')
-        if len(parts) >= 2:
-            candidate = parts[1].lower()
-            if (re.match(r'^[a-z0-9]+$', candidate) and 
-                candidate not in ['single', 'box', 'ptcg', 'tcg', 'jp', 'en', 'chi', 'opcg']):
-                set_code = candidate
-    
-    # 用對照表驗證
-    if set_code:
-        set_code = set_code.replace('-', '').lower()
-        if set_code in SET_MAP:
-            return SET_MAP[set_code]
-        else:
-            # 唔喺對照表但格式正確，都加上
-            return f'set-{set_code}'
+    parts = handle.split('-')
+    if len(parts) >= 2:
+        candidate = parts[1].lower()
+        if (re.match(r'^[a-z0-9]+$', candidate) and
+            candidate not in ['single', 'box', 'ptcg', 'tcg', 'jp', 'en', 'chi', 'opcg']):
+            return SET_MAP.get(candidate, f'set-{candidate}')
     
     return None
 
