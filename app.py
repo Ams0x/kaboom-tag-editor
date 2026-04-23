@@ -3,8 +3,8 @@ import pandas as pd
 import re
 
 st.set_page_config(page_title="KaBoom TCG 官方 Tag 神器", layout="wide")
-st.title("🏷️ KaBoom TCG 官方 Tag 自動化神器 (V3 完美除錯版)")
-st.write("✅ 已完美支援 OPCG (OP/EB/ST) 格式 | ✅ 自動修正錯誤遊戲 Tag | ✅ 準確補齊 type-single")
+st.title("🏷️ KaBoom TCG 官方 Tag 自動化神器 (V3 全系列補齊版)")
+st.write("✅ 完美捕捉歷代 PTCG (sv/s/sm/ac/sc) | ✅ 智能拆解 OPCG 卡號 | ✅ 自動修正錯誤遊戲 Tag")
 
 uploaded_csv = st.file_uploader("📂 上傳 Shopify 產品 CSV", type=["csv"])
 
@@ -71,7 +71,7 @@ if st.button("🚀 根據 V3 指引一鍵補齊 Tags") and uploaded_csv:
             # ==========================================
             # 3. 產品類型 (Product Type) & 配件品牌
             # ==========================================
-            if any(kw in title_lower for kw in ['原盒', 'booster box', 'box', '原箱']):
+            if any(kw in title_lower for kw in ['原盒', 'booster box', 'box', '原箱', '散包']):
                 new_tags.add('type-boosterbox')
             elif any(kw in title_lower for kw in ['單卡', 'single']):
                 new_tags.add('type-single')
@@ -79,15 +79,14 @@ if st.button("🚀 根據 V3 指引一鍵補齊 Tags") and uploaded_csv:
                 new_tags.add('type-giftbox')
             elif any(kw in title_lower for kw in ['卡組', '預組', 'deck']):
                 new_tags.add('type-deckset')
-            elif any(kw in title_lower for kw in ['卡套', 'sleeve']):
+            elif any(kw in title_lower for kw in ['卡套', 'sleeve', 'protector']):
                 new_tags.add('type-sleeve')
-            elif any(kw in title_lower for kw in ['卡墊', 'mat', 'playmat']):
+            elif any(kw in title_lower for kw in ['卡墊', 'mat', 'playmat', '桌墊']):
                 new_tags.add('type-mat')
-            elif any(kw in title_lower for kw in ['卡盒', 'deckbox']):
+            elif any(kw in title_lower for kw in ['卡盒', 'deckbox', '收納盒']):
                 new_tags.add('type-deckbox')
             
-            # 🎯 終極補底：如果無被歸類為原盒、卡套等周邊，並且有卡號格式，就係單卡！
-            # 支援格式：001/073 (PTCG), 1/204 (Lorcana), OP10-119, EB02-061 (OPCG)
+            # 🎯 終極補底：如果無被歸類為周邊等，並且有卡號格式，就係單卡
             if not any(t in new_tags for t in ['type-boosterbox', 'type-giftbox', 'type-deckset', 'type-sleeve', 'type-mat', 'type-deckbox']):
                 if re.search(r'([A-Za-z]{1,4}\d{0,2}-\d{3}|\d{1,3}/\d{1,3})', title) or is_psa or 'sp卡' in title_lower or 'sr卡' in title_lower:
                     new_tags.add('type-single')
@@ -95,7 +94,7 @@ if st.button("🚀 根據 V3 指引一鍵補齊 Tags") and uploaded_csv:
             # 品牌
             if 'dragon shield' in title_lower or 'dragonshield' in title_lower:
                 new_tags.add('brand-dragonshield')
-            if '寶可夢' in title_lower and ('卡套' in title_lower or '卡墊' in title_lower):
+            if '寶可夢' in title_lower and any(kw in title_lower for kw in ['卡套', '卡墊', '卡盒', '收納盒']):
                 new_tags.add('brand-pokemon')
 
             # ==========================================
@@ -107,16 +106,25 @@ if st.button("🚀 根據 V3 指引一鍵補齊 Tags") and uploaded_csv:
                 set_code = set_match.group(1).lower()
             else:
                 op_match = re.search(r'\b(op\d{2}|eb\d{2}|st\d{2}|prb\d{2})\b', title_lower)
-                if op_match: set_code = op_match.group(1).lower()
+                if op_match: 
+                    set_code = op_match.group(1).lower()
                 else:
-                    sv_match = re.search(r'\b(sv\d+[a-z]?)\b', title_lower)
-                    if sv_match: set_code = sv_match.group(1).lower()
+                    # 🌟 升級：完美支援所有 PTCG 世代 (sv, s, sm, ac, sc 及其擴充包如 sv5af)
+                    ptcg_match = re.search(r'\b((?:sv|s|sm|ac|sc)\d+[a-z]{0,2})\b', title_lower)
+                    if ptcg_match: 
+                        set_code = ptcg_match.group(1).lower()
                     else:
-                        handle_parts = handle.split('-')
-                        if len(handle_parts) >= 2:
-                            possible_set = handle_parts[1].lower()
-                            if re.match(r'^[a-z0-9]+$', possible_set) and possible_set not in ['single', 'box', 'ptcg']:
-                                set_code = possible_set
+                        # 🌟 升級：智能拆解 OPCG 卡號 (例如 OP10-119 -> op10, P-001 -> p)
+                        card_match = re.search(r'\b([A-Za-z]{1,4}\d{0,2})-\d{3}\b', title)
+                        if card_match:
+                            set_code = card_match.group(1).lower()
+                        else:
+                            # 終極防線：透過 Shopify 網址 Handle 提取
+                            handle_parts = handle.split('-')
+                            if len(handle_parts) >= 2:
+                                possible_set = handle_parts[1].lower()
+                                if re.match(r'^[a-z0-9]+$', possible_set) and possible_set not in ['single', 'box', 'ptcg', 'tcg', 'jp', 'en', 'chi']:
+                                    set_code = possible_set
             
             if set_code:
                 new_tags.add(f'set-{set_code}')
@@ -130,6 +138,6 @@ if st.button("🚀 根據 V3 指引一鍵補齊 Tags") and uploaded_csv:
 
         progress_bar.progress((index + 1) / len(df))
 
-    status_text.text("🎉 全部處理完成！所有海賊王單卡已完美打上 type-single！")
+    status_text.text("🎉 全部處理完成！所有漏網之魚（舊系列 / 特殊擴充包）已完美打上 set-！")
     csv = df.to_csv(index=False).encode('utf-8-sig')
     st.download_button(f"📥 下載 {download_filename}", csv, download_filename, "text/csv")
