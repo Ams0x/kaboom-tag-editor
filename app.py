@@ -3,16 +3,17 @@ import pandas as pd
 import re
 
 st.set_page_config(page_title="KaBoom TCG 官方 Tag 神器", layout="wide")
-st.title("🏷️ KaBoom TCG 官方 Tag 自動化神器 (V4)")
-st.write("✅ 正確識別 PRB-02 / EB-01 / ST系列 | ✅ 防止錯誤套用OPCG系列號做PTCG")
+st.title("🏷️ KaBoom TCG 官方 Tag 自動化神器 (V4.1)")
+st.write("✅ 正確識別 PRB-02 / EB-01 / ST系列 | ✅ 骰子/非TCG配件唔加game tag | ✅ Handle唔再亂估系列")
 
 # ==========================================
-# 已知系列對照表（括號代號 → tag）
+# 已知系列對照表
 # ==========================================
 SET_MAP = {
-    # PTCG 繁中
+    # PTCG 繁中 M系列
     'm1l': 'set-m1l', 'm1s': 'set-m1s', 'm2': 'set-m2', 'm2a': 'set-m2a',
     'm3': 'set-m3', 'm4': 'set-m4',
+    # PTCG SV系列
     'sv1s': 'set-sv1s', 'sv1v': 'set-sv1v',
     'sv2d': 'set-sv2d', 'sv2p': 'set-sv2p',
     'sv3': 'set-sv3', 'sv3a': 'set-sv3a',
@@ -42,24 +43,31 @@ SET_MAP = {
     'st19': 'set-st19', 'st20': 'set-st20',
 }
 
-# OPCG系列前綴
-OPCG_PREFIXES = {'op', 'eb', 'st', 'prb'}
-# PTCG系列前綴
-PTCG_PREFIXES = {'sv', 's', 'sm', 'ac', 'sc', 'm'}
+# 非TCG配件關鍵字 — 唔加任何game tag
+NON_TCG_KEYWORDS = [
+    'dice', 'd6', 'd20', 'd4', 'd8', 'd10', 'd12',
+    'chessex', 'diceski', 'ultra pro', 'ultrapro',
+    'topper', 'life counter', 'coin', 'token',
+]
 
-def detect_game(title_lower, existing_tags_lower):
-    """判斷遊戲類別"""
+def detect_game(title_lower):
+    # 非TCG配件優先判斷
+    if any(kw in title_lower for kw in NON_TCG_KEYWORDS):
+        return set()
+
     is_psa = 'psa' in title_lower or '鑑定' in title_lower
-    is_opcg = ('opcg' in title_lower or '海賊王' in title_lower or 
-               'one piece' in title_lower or
-               re.search(r'[\[【](op|eb|st|prb)\d{2}[\]】]', title_lower))
-    
+    is_opcg = (
+        'opcg' in title_lower or '海賊王' in title_lower or
+        'one piece' in title_lower or
+        bool(re.search(r'[\[【](op|eb|st|prb)\d{1,2}[\]】]', title_lower))
+    )
+
     games = set()
     if is_psa:
         games.add('game-graded')
         if 'psa' in title_lower:
             games.add('graded-psa')
-    
+
     if 'lorcana' in title_lower:
         games.add('game-lorcana')
     elif is_opcg:
@@ -68,11 +76,16 @@ def detect_game(title_lower, existing_tags_lower):
         games.add('game-yugioh')
     elif not any(kw in title_lower for kw in ['卡套', '卡墊', '卡盒']):
         games.add('game-ptcg')
-    
+
     return games
 
+
 def detect_set(title, title_lower, handle):
-    # 第一優先：括號內代號 【PRB-02】或 [SV9a] — 完全唔理卡號
+    # 非TCG配件唔加set
+    if any(kw in title_lower for kw in NON_TCG_KEYWORDS):
+        return None
+
+    # 第一優先：括號內代號 【PRB-02】或 [SV9a]
     bracket_match = re.search(r'[\[【]([A-Za-z]{1,4}-?\d{1,2}[A-Za-z]?)[\]】]', title)
     if bracket_match:
         raw = bracket_match.group(1).replace('-', '').lower()
@@ -80,50 +93,73 @@ def detect_set(title, title_lower, handle):
             if raw in SET_MAP:
                 return SET_MAP[raw]
             return f'set-{raw}'
-    
-    # 第二優先：OPCG連字號格式 OP-13, PRB-02（只搵獨立單詞，唔係卡號一部分）
-    opcg_match = re.search(r'(?<!\w)(op|eb|st|prb)-(\d{1,2})(?!\d*-\d{3})', title_lower)
+
+    # 第二優先：OPCG連字號格式 OP-13, PRB-02
+    # 用負向lookahead避免匹配卡號如 OP10-119
+    opcg_match = re.search(r'(?<!\w)(op|eb|st|prb)-(\d{1,2})(?!\d*-\d{3})\b', title_lower)
     if opcg_match:
         prefix = opcg_match.group(1)
         num = opcg_match.group(2).zfill(2)
         set_code = f"{prefix}{num}"
         return SET_MAP.get(set_code, f'set-{set_code}')
-    
-    # 第三優先：PTCG系列
+
+    # 第三優先：PTCG SV系列
     ptcg_match = re.search(r'\b(sv\d+[a-z]?|s\d+[a-z]?|sm\d+[a-z]?)\b', title_lower)
     if ptcg_match:
         code = ptcg_match.group(1)
         return SET_MAP.get(code, f'set-{code}')
-    
+
     # 第四優先：M系列括號
     m_match = re.search(r'[\[【](m\d+[a-z]?)[\]】]', title_lower)
     if m_match:
         code = m_match.group(1)
         return SET_MAP.get(code, f'set-{code}')
-    
-    # 終極防線：Handle
+
+    # 終極防線：Handle — 只信任已知對照表，唔亂估
     parts = handle.split('-')
     if len(parts) >= 2:
         candidate = parts[1].lower()
-        if (re.match(r'^[a-z0-9]+$', candidate) and
-            candidate not in ['single', 'box', 'ptcg', 'tcg', 'jp', 'en', 'chi', 'opcg']):
-            return SET_MAP.get(candidate, f'set-{candidate}')
-    
+        if candidate in SET_MAP:
+            return SET_MAP[candidate]
+
     return None
+
+
+def detect_type(title_lower, is_psa):
+    if any(kw in title_lower for kw in ['原盒', 'booster box', 'box', '原箱', '散包']):
+        return 'type-boosterbox'
+    elif any(kw in title_lower for kw in ['單卡', 'single']):
+        return 'type-single'
+    elif '禮盒' in title_lower:
+        return 'type-giftbox'
+    elif any(kw in title_lower for kw in ['卡組', '預組', 'deck']):
+        return 'type-deckset'
+    elif any(kw in title_lower for kw in ['卡套', 'sleeve', 'protector']):
+        return 'type-sleeve'
+    elif any(kw in title_lower for kw in ['卡墊', 'mat', 'playmat', '桌墊']):
+        return 'type-mat'
+    elif any(kw in title_lower for kw in ['卡盒', 'deckbox', '收納盒']):
+        return 'type-deckbox'
+    elif re.search(r'([A-Za-z]{1,4}\d{0,2}-\d{3}|\d{1,3}/\d{1,3})', title_lower) or is_psa:
+        return 'type-single'
+    elif any(kw in title_lower for kw in NON_TCG_KEYWORDS):
+        return None  # 骰子等唔加type
+    return None
+
 
 def process_row(title, handle, existing_tags_str):
     title_lower = title.lower()
     new_tags = set()
-    
+
     existing_tags = []
-    if existing_tags_str and existing_tags_str != 'nan':
+    if existing_tags_str and existing_tags_str not in ['nan', '']:
         existing_tags = [t.strip() for t in existing_tags_str.split(',') if t.strip()]
     existing_tags_lower = [t.lower() for t in existing_tags]
-    
+
     # 遊戲類別
-    game_tags = detect_game(title_lower, existing_tags_lower)
+    game_tags = detect_game(title_lower)
     new_tags.update(game_tags)
-    
+
     # 語言
     if any(kw in title_lower for kw in ['繁中', '中文']) or handle.upper().startswith('CHI-'):
         new_tags.add('lang-tc')
@@ -131,90 +167,80 @@ def process_row(title, handle, existing_tags_str):
         new_tags.add('lang-jp')
     elif any(kw in title_lower for kw in ['美版', '英文']) or handle.upper().startswith('ENG-'):
         new_tags.add('lang-en')
-    
+
     # 產品類型
-    if any(kw in title_lower for kw in ['原盒', 'booster box', 'box', '原箱', '散包']):
-        new_tags.add('type-boosterbox')
-    elif any(kw in title_lower for kw in ['單卡', 'single']):
-        new_tags.add('type-single')
-    elif '禮盒' in title_lower:
-        new_tags.add('type-giftbox')
-    elif any(kw in title_lower for kw in ['卡組', '預組', 'deck']):
-        new_tags.add('type-deckset')
-    elif any(kw in title_lower for kw in ['卡套', 'sleeve', 'protector']):
-        new_tags.add('type-sleeve')
-    elif any(kw in title_lower for kw in ['卡墊', 'mat', 'playmat']):
-        new_tags.add('type-mat')
-    elif any(kw in title_lower for kw in ['卡盒', 'deckbox', '收納盒']):
-        new_tags.add('type-deckbox')
-    
-    if not any(t in new_tags for t in ['type-boosterbox', 'type-giftbox', 'type-deckset', 
-                                        'type-sleeve', 'type-mat', 'type-deckbox']):
-        is_psa = 'psa' in title_lower or '鑑定' in title_lower
-        if re.search(r'([A-Za-z]{1,4}\d{0,2}-\d{3}|\d{1,3}/\d{1,3})', title) or is_psa:
-            new_tags.add('type-single')
-    
+    is_psa = 'psa' in title_lower or '鑑定' in title_lower
+    type_tag = detect_type(title_lower, is_psa)
+    if type_tag:
+        new_tags.add(type_tag)
+
     # 品牌
     if 'dragon shield' in title_lower or 'dragonshield' in title_lower:
         new_tags.add('brand-dragonshield')
     if '寶可夢' in title_lower and any(kw in title_lower for kw in ['卡套', '卡墊', '卡盒']):
         new_tags.add('brand-pokemon')
-    
+
     # 系列
     set_tag = detect_set(title, title_lower, handle)
     if set_tag:
         new_tags.add(set_tag)
-    
-    # 合併
+
+    # 合併，保留原有tag
     tags_to_add = [t for t in new_tags if t.lower() not in existing_tags_lower]
     final_tags = existing_tags + sorted(tags_to_add)
     return ", ".join(final_tags)
+
 
 # ==========================================
 # UI
 # ==========================================
 uploaded_csv = st.file_uploader("📂 上傳 Shopify 產品 CSV", type=["csv"])
 
-# 測試工具
 st.subheader("🔍 單一產品測試")
-test_title = st.text_input("輸入產品標題測試", placeholder="例如：高級補充包ONE PIECE CARD THE BEST【PRB-02】")
+col1, col2 = st.columns([3, 1])
+with col1:
+    test_title = st.text_input("輸入產品標題測試", placeholder="例如：高級補充包ONE PIECE CARD THE BEST【PRB-02】")
+with col2:
+    test_handle = st.text_input("Handle（可空）", placeholder="opcg-prb02-xxx")
+
 if test_title:
-    result = process_row(test_title, '', '')
-    st.success(f"**生成Tags：** {result}")
+    result = process_row(test_title, test_handle or '', '')
+    st.success(f"**生成Tags：** `{result}`")
+
+st.divider()
 
 if st.button("🚀 一鍵補齊全部 Tags") and uploaded_csv:
     progress_bar = st.progress(0)
     status_text = st.empty()
     status_text.text("⚡ 正在分析...")
-    
+
     df = pd.read_csv(uploaded_csv)
     original_filename = uploaded_csv.name
     download_filename = f"V4_Tagged_{original_filename}"
-    
+
     if 'Tags' not in df.columns:
         df['Tags'] = ""
-    
+
     errors = []
     for index, row in df.iterrows():
         title = str(row.get('Title', ''))
         handle = str(row.get('Handle', ''))
         existing_tags_str = str(row.get('Tags', ''))
-        
+
         if pd.notna(title) and title.strip() not in ['', 'nan']:
             try:
                 df.at[index, 'Tags'] = process_row(title, handle, existing_tags_str)
             except Exception as e:
                 errors.append(f"Row {index}: {e}")
-        
+
         progress_bar.progress((index + 1) / len(df))
-    
+
     if errors:
-        st.warning(f"⚠️ {len(errors)} 個錯誤：{errors[:3]}")
-    
+        st.warning(f"⚠️ {len(errors)} 個錯誤：{errors[:5]}")
+
     status_text.text("🎉 完成！")
     csv = df.to_csv(index=False).encode('utf-8-sig')
     st.download_button(f"📥 下載 {download_filename}", csv, download_filename, "text/csv")
-    
-    # 預覽
+
     st.subheader("預覽結果（首20行）")
     st.dataframe(df[['Title', 'Tags']].head(20))
