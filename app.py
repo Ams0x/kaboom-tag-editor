@@ -4,8 +4,8 @@ import re
 import unicodedata
 
 st.set_page_config(page_title="KaBoom TCG 官方 Tag 神器", layout="wide")
-st.title("🏷️ KaBoom TCG 官方 Tag 自動化神器 (V4.7)")
-st.write("✅ 修復中文括號誤判 | ✅ 寶可夢中文產品自動加lang-tc | ✅ PRB-02正確識別OPCG")
+st.title("🏷️ KaBoom TCG 官方 Tag 自動化神器 (V4.8)")
+st.write("✅ 修復OP11直接格式識別 | ✅ 寶可夢中文產品自動加lang-tc | ✅ PRB-02正確識別OPCG")
 
 SET_MAP = {
     'm1l': 'set-m1l', 'm1s': 'set-m1s', 'm2': 'set-m2', 'm2a': 'set-m2a',
@@ -73,6 +73,9 @@ LANG_TC_KEYWORDS = [
     '朱&紫', '朱＆紫', '劍&盾', '劍＆盾', '太陽&月亮', '太陽＆月亮',
 ]
 
+OPCG_DIRECT_PATTERN = re.compile(
+    r'\b(op|eb|st|prb)\d{2}\b', re.IGNORECASE
+)
 OPCG_BRACKET_PATTERN = re.compile(
     r'[\[【](op|eb|st|prb)-?\d{1,2}[\]】]', re.IGNORECASE
 )
@@ -87,7 +90,8 @@ def is_opcg_text(text_lower):
         'opcg' in text_lower or
         '海賊王' in text_lower or
         'one piece' in text_lower or
-        bool(OPCG_BRACKET_PATTERN.search(text_lower))
+        bool(OPCG_BRACKET_PATTERN.search(text_lower)) or
+        bool(OPCG_DIRECT_PATTERN.search(text_lower))
     )
 
 
