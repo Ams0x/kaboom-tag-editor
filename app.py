@@ -4,8 +4,8 @@ import re
 import unicodedata
 
 st.set_page_config(page_title="KaBoom TCG 官方 Tag 神器", layout="wide")
-st.title("🏷️ KaBoom TCG 官方 Tag 自動化神器 (V4.5)")
-st.write("✅ PRB-02正確識別OPCG | ✅ PSA卡唔加set tag | ✅ 配件唔加game tag | ✅ 全寬字修復")
+st.title("🏷️ KaBoom TCG 官方 Tag 自動化神器 (V4.6)")
+st.write("✅ 同時分析Title+Tags | ✅ PRB-02正確識別OPCG | ✅ PSA卡唔加set | ✅ 配件唔加game tag")
 
 SET_MAP = {
     'm1l': 'set-m1l', 'm1s': 'set-m1s', 'm2': 'set-m2', 'm2a': 'set-m2a',
@@ -67,7 +67,6 @@ BRAND_MAP = {
     'brand-bcw':           ['bcw'],
 }
 
-# OPCG系列識別pattern（含連字號版本）
 OPCG_BRACKET_PATTERN = re.compile(
     r'[\[【](op|eb|st|prb)-?\d{1,2}[\]】]', re.IGNORECASE
 )
@@ -77,69 +76,68 @@ def normalize(text):
     return unicodedata.normalize('NFKC', text)
 
 
-def is_opcg_title(title_lower):
-    """判斷係咪OPCG產品"""
+def is_opcg_text(text_lower):
     return (
-        'opcg' in title_lower or
-        '海賊王' in title_lower or
-        'one piece' in title_lower or
-        bool(OPCG_BRACKET_PATTERN.search(title_lower))
+        'opcg' in text_lower or
+        '海賊王' in text_lower or
+        'one piece' in text_lower or
+        bool(OPCG_BRACKET_PATTERN.search(text_lower))
     )
 
 
-def detect_game(title_lower, title_norm_lower):
-    if any(kw in title_lower for kw in NON_TCG_KEYWORDS):
+def detect_game(combined_lower):
+    if any(kw in combined_lower for kw in NON_TCG_KEYWORDS):
         return set()
-    if any(kw in title_lower for kw in ACCESSORY_BRANDS):
+    if any(kw in combined_lower for kw in ACCESSORY_BRANDS):
         return set()
 
-    is_psa = 'psa' in title_lower or '鑑定' in title_lower
+    is_psa = 'psa' in combined_lower or '鑑定' in combined_lower
     games = set()
 
     if is_psa:
         games.add('game-graded')
-        if 'psa' in title_lower:
+        if 'psa' in combined_lower:
             games.add('graded-psa')
 
-    if 'lorcana' in title_lower:
+    if 'lorcana' in combined_lower:
         games.add('game-lorcana')
-    elif is_opcg_title(title_lower):
+    elif is_opcg_text(combined_lower):
         games.add('game-opcg')
-    elif '遊戲王' in title_lower or 'yugioh' in title_lower:
+    elif '遊戲王' in combined_lower or 'yugioh' in combined_lower:
         games.add('game-yugioh')
-    elif not any(kw in title_lower for kw in ['卡套', '卡墊', '卡盒']):
+    elif not any(kw in combined_lower for kw in ['卡套', '卡墊', '卡盒']):
         games.add('game-ptcg')
 
     return games
 
 
-def detect_set(title, title_lower, title_norm_lower, handle):
+def detect_set(combined, combined_lower, combined_norm_lower, handle):
     # PSA鑑定卡唔加set tag
-    if 'psa' in title_lower or '鑑定' in title_lower:
+    if 'psa' in combined_lower or '鑑定' in combined_lower:
         return None
 
     # 非TCG配件唔加set
-    if any(kw in title_lower for kw in NON_TCG_KEYWORDS):
+    if any(kw in combined_lower for kw in NON_TCG_KEYWORDS):
         return None
-    if any(kw in title_lower for kw in ACCESSORY_BRANDS):
+    if any(kw in combined_lower for kw in ACCESSORY_BRANDS):
         return None
 
     # 第一優先：括號內代號 【PRB-02】【OP-12】[SV9a]（含連字號）
-    bracket_match = re.search(r'[\[【]([A-Za-z]{1,4})-?(\d{1,2}[A-Za-z]?)[\]】]', title)
+    bracket_match = re.search(r'[\[【]([A-Za-z]{1,4})-?(\d{1,2}[A-Za-z]?)[\]】]', combined)
     if bracket_match:
         raw = (bracket_match.group(1) + bracket_match.group(2)).lower()
         if re.search(r'[a-z]', raw):
             return SET_MAP.get(raw, f'set-{raw}')
 
     # normalize版本括號（解決全寬字）
-    norm_bracket = re.search(r'[\[【]([A-Za-z]{1,4})-?(\d{1,2}[A-Za-z]?)[\]】]', normalize(title))
+    norm_bracket = re.search(r'[\[【]([A-Za-z]{1,4})-?(\d{1,2}[A-Za-z]?)[\]】]', normalize(combined))
     if norm_bracket:
         raw = (norm_bracket.group(1) + norm_bracket.group(2)).lower()
         if re.search(r'[a-z]', raw):
             return SET_MAP.get(raw, f'set-{raw}')
 
     # 第二優先：OPCG連字號格式 OP-13, PRB-02（排除卡號如OP10-119）
-    opcg_match = re.search(r'(?<!\w)(op|eb|st|prb)-(\d{1,2})(?!\d*-\d{3})\b', title_lower)
+    opcg_match = re.search(r'(?<!\w)(op|eb|st|prb)-(\d{1,2})(?!\d*-\d{3})\b', combined_lower)
     if opcg_match:
         prefix = opcg_match.group(1)
         num = opcg_match.group(2).zfill(2)
@@ -147,21 +145,21 @@ def detect_set(title, title_lower, title_norm_lower, handle):
         return SET_MAP.get(set_code, f'set-{set_code}')
 
     # 第三優先：PTCG SV系列
-    for t in [title_lower, title_norm_lower]:
+    for t in [combined_lower, combined_norm_lower]:
         ptcg_match = re.search(r'\b(sv\d+[a-z]{0,2})\b', t)
         if ptcg_match:
             code = ptcg_match.group(1)
             return SET_MAP.get(code, f'set-{code}')
 
     # 第四優先：舊系列 Ac2a, S1a 等
-    old_match = re.search(r'\b(ac\d+[a-z]?|s\d+[a-z]{0,2})\b', title_norm_lower)
+    old_match = re.search(r'\b(ac\d+[a-z]?|s\d+[a-z]{0,2})\b', combined_norm_lower)
     if old_match:
         code = old_match.group(1)
         if code in SET_MAP:
             return SET_MAP[code]
 
     # 第五優先：M系列括號
-    m_match = re.search(r'[\[【](m\d+[a-z]?)[\]】]', title_lower)
+    m_match = re.search(r'[\[【](m\d+[a-z]?)[\]】]', combined_lower)
     if m_match:
         code = m_match.group(1)
         return SET_MAP.get(code, f'set-{code}')
@@ -176,51 +174,58 @@ def detect_set(title, title_lower, title_norm_lower, handle):
     return None
 
 
-def detect_type(title_lower, is_psa):
-    if any(kw in title_lower for kw in ['原盒', 'booster box', 'box', '原箱', '散包']):
+def detect_type(combined_lower, is_psa):
+    if any(kw in combined_lower for kw in ['原盒', 'booster box', 'box', '原箱', '散包']):
         return 'type-boosterbox'
-    elif any(kw in title_lower for kw in ['單卡', 'single']):
+    elif any(kw in combined_lower for kw in ['單卡', 'single']):
         return 'type-single'
-    elif '禮盒' in title_lower:
+    elif '禮盒' in combined_lower:
         return 'type-giftbox'
-    elif any(kw in title_lower for kw in ['卡組', '預組', 'deck']):
+    elif any(kw in combined_lower for kw in ['卡組', '預組', 'deck']):
         return 'type-deckset'
-    elif any(kw in title_lower for kw in ['卡套', 'sleeve', 'protector']):
+    elif any(kw in combined_lower for kw in ['卡套', 'sleeve', 'protector']):
         return 'type-sleeve'
-    elif any(kw in title_lower for kw in ['卡墊', 'mat', 'playmat', '桌墊']):
+    elif any(kw in combined_lower for kw in ['卡墊', 'mat', 'playmat', '桌墊']):
         return 'type-mat'
-    elif any(kw in title_lower for kw in ['卡盒', 'deckbox', '收納盒']):
+    elif any(kw in combined_lower for kw in ['卡盒', 'deckbox', '收納盒']):
         return 'type-deckbox'
-    elif any(kw in title_lower for kw in NON_TCG_KEYWORDS):
+    elif any(kw in combined_lower for kw in NON_TCG_KEYWORDS):
         return 'type-other'
-    elif re.search(r'([A-Za-z]{1,4}\d{0,2}-\d{3}|\d{1,3}/\d{1,3})', title_lower) or is_psa:
+    elif re.search(r'([A-Za-z]{1,4}\d{0,2}-\d{3}|\d{1,3}/\d{1,3})', combined_lower) or is_psa:
         return 'type-single'
     return None
 
 
-def detect_brands(title_lower):
+def detect_brands(combined_lower):
     brands = set()
     for brand_tag, keywords in BRAND_MAP.items():
-        if any(kw in title_lower for kw in keywords):
+        if any(kw in combined_lower for kw in keywords):
             brands.add(brand_tag)
-    if '寶可夢' in title_lower and any(kw in title_lower for kw in ['卡套', '卡墊', '卡盒', '收納盒']):
+    if '寶可夢' in combined_lower and any(kw in combined_lower for kw in ['卡套', '卡墊', '卡盒', '收納盒']):
         brands.add('brand-pokemon')
     return brands
 
 
 def process_row(title, handle, existing_tags_str):
-    title_lower = title.lower()
-    title_norm = normalize(title)
-    title_norm_lower = title_norm.lower()
+    # 合併Title同現有Tags一齊分析，解決系列資訊喺Tags入面嘅情況
+    existing_tags_clean = str(existing_tags_str) if str(existing_tags_str) not in ['nan', ''] else ''
+    combined = title + ' ' + existing_tags_clean
+    combined_lower = combined.lower()
+    combined_norm = normalize(combined)
+    combined_norm_lower = combined_norm.lower()
+
     new_tags = set()
 
     existing_tags = []
-    if existing_tags_str and str(existing_tags_str) not in ['nan', '']:
-        existing_tags = [t.strip() for t in str(existing_tags_str).split(',') if t.strip()]
+    if existing_tags_clean:
+        existing_tags = [t.strip() for t in existing_tags_clean.split(',') if t.strip()]
     existing_tags_lower = [t.lower() for t in existing_tags]
 
-    new_tags.update(detect_game(title_lower, title_norm_lower))
+    # 遊戲類別（用combined分析）
+    new_tags.update(detect_game(combined_lower))
 
+    # 語言（title優先）
+    title_lower = title.lower()
     if any(kw in title_lower for kw in ['繁中', '中文']) or handle.upper().startswith('CHI-'):
         new_tags.add('lang-tc')
     elif any(kw in title_lower for kw in ['日版', '日文']) or handle.upper().startswith('JPN-'):
@@ -228,17 +233,21 @@ def process_row(title, handle, existing_tags_str):
     elif any(kw in title_lower for kw in ['美版', '英文']) or handle.upper().startswith('ENG-'):
         new_tags.add('lang-en')
 
-    is_psa = 'psa' in title_lower or '鑑定' in title_lower
-    type_tag = detect_type(title_lower, is_psa)
+    # 產品類型
+    is_psa = 'psa' in combined_lower or '鑑定' in combined_lower
+    type_tag = detect_type(combined_lower, is_psa)
     if type_tag:
         new_tags.add(type_tag)
 
-    new_tags.update(detect_brands(title_lower))
+    # 品牌
+    new_tags.update(detect_brands(combined_lower))
 
-    set_tag = detect_set(title, title_lower, title_norm_lower, handle)
+    # 系列（用combined分析）
+    set_tag = detect_set(combined, combined_lower, combined_norm_lower, handle)
     if set_tag:
         new_tags.add(set_tag)
 
+    # 合併保留原有tag
     tags_to_add = [t for t in new_tags if t.lower() not in existing_tags_lower]
     final_tags = existing_tags + sorted(tags_to_add)
     return ", ".join(final_tags)
@@ -253,12 +262,15 @@ st.subheader("🔍 單一產品測試")
 col1, col2 = st.columns([3, 1])
 with col1:
     test_title = st.text_input("輸入產品標題測試",
-        placeholder="例如：高級補充包ONE PIECE CARD THE BEST【PRB-02】")
+        placeholder="例如：| CHARACTER 托拉法爾加·羅")
 with col2:
     test_handle = st.text_input("Handle（可空）", placeholder="opcg-prb02-xxx")
 
+test_existing = st.text_input("現有Tags（可空）",
+    placeholder="例如：高級補充包ONE PIECE CARD THE BEST【PRB-02】")
+
 if test_title:
-    result = process_row(test_title, test_handle or '', '')
+    result = process_row(test_title, test_handle or '', test_existing or '')
     st.success(f"**生成Tags：** `{result}`")
 
 st.divider()
