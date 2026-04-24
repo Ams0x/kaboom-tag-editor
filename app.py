@@ -4,14 +4,12 @@ import re
 import unicodedata
 
 st.set_page_config(page_title="KaBoom TCG 官方 Tag 神器", layout="wide")
-st.title("🏷️ KaBoom TCG 官方 Tag 自動化神器 (V4.4)")
-st.write("✅ 修復全寬字SV5aF | ✅ 加入舊系列Ac2/S系列 | ✅ OnePiece正確識別OPCG | ✅ 配件唔加game-ptcg")
+st.title("🏷️ KaBoom TCG 官方 Tag 自動化神器 (V4.5)")
+st.write("✅ PRB-02正確識別OPCG | ✅ PSA卡唔加set tag | ✅ 配件唔加game tag | ✅ 全寬字修復")
 
 SET_MAP = {
-    # PTCG 繁中 M系列
     'm1l': 'set-m1l', 'm1s': 'set-m1s', 'm2': 'set-m2', 'm2a': 'set-m2a',
     'm3': 'set-m3', 'm4': 'set-m4',
-    # PTCG SV系列
     'sv1s': 'set-sv1s', 'sv1v': 'set-sv1v',
     'sv2d': 'set-sv2d', 'sv2p': 'set-sv2p',
     'sv3': 'set-sv3', 'sv3a': 'set-sv3a',
@@ -23,7 +21,6 @@ SET_MAP = {
     'sv9': 'set-sv9', 'sv9a': 'set-sv9a',
     'sv10': 'set-sv10',
     'sv11b': 'set-sv11b', 'sv11w': 'set-sv11w',
-    # PTCG 舊系列
     'ac2a': 'set-ac2a', 'ac2b': 'set-ac2b',
     's1a': 'set-s1a', 's1h': 'set-s1h', 's1w': 'set-s1w',
     's2a': 'set-s2a', 's3a': 'set-s3a', 's4a': 'set-s4a',
@@ -32,13 +29,11 @@ SET_MAP = {
     's8b': 'set-s8b', 's9a': 'set-s9a', 's10a': 'set-s10a',
     's10b': 'set-s10b', 's10d': 'set-s10d', 's10p': 'set-s10p',
     's12a': 'set-s12a',
-    # OPCG 補充包
     'op01': 'set-op01', 'op02': 'set-op02', 'op03': 'set-op03',
     'op04': 'set-op04', 'op05': 'set-op05', 'op06': 'set-op06',
     'op07': 'set-op07', 'op08': 'set-op08', 'op09': 'set-op09',
     'op10': 'set-op10', 'op11': 'set-op11', 'op12': 'set-op12',
     'op13': 'set-op13',
-    # OPCG 特別系列
     'prb01': 'set-prb01', 'prb02': 'set-prb02', 'prb03': 'set-prb03',
     'eb01': 'set-eb01', 'eb02': 'set-eb02',
     'st01': 'set-st01', 'st02': 'set-st02', 'st03': 'set-st03',
@@ -50,14 +45,12 @@ SET_MAP = {
     'st19': 'set-st19', 'st20': 'set-st20',
 }
 
-# 非TCG配件關鍵字
 NON_TCG_KEYWORDS = [
     'dice', 'd6', 'd20', 'd4', 'd8', 'd10', 'd12',
     'chessex', 'diceski', 'life counter', 'coin', 'token',
     'topper', 'toploader', 'card stand', 'card gard',
 ]
 
-# 純配件品牌（唔加game tag）
 ACCESSORY_BRANDS = [
     'dragon shield', 'dragonshield', 'ultra pro', 'ultrapro',
     'ultimate guard', 'broccoli', 'bushiroad', 'bcw',
@@ -65,37 +58,44 @@ ACCESSORY_BRANDS = [
 ]
 
 BRAND_MAP = {
-    'brand-dragonshield': ['dragon shield', 'dragonshield'],
-    'brand-broccoli':     ['broccoli'],
-    'brand-bushiroad':    ['bushiroad'],
-    'brand-ultrapro':     ['ultra pro', 'ultrapro'],
-    'brand-ultimateguard':['ultimate guard'],
-    'brand-chessex':      ['chessex', 'diceski'],
-    'brand-bcw':          ['bcw'],
+    'brand-dragonshield':  ['dragon shield', 'dragonshield'],
+    'brand-broccoli':      ['broccoli'],
+    'brand-bushiroad':     ['bushiroad'],
+    'brand-ultrapro':      ['ultra pro', 'ultrapro'],
+    'brand-ultimateguard': ['ultimate guard'],
+    'brand-chessex':       ['chessex', 'diceski'],
+    'brand-bcw':           ['bcw'],
 }
+
+# OPCG系列識別pattern（含連字號版本）
+OPCG_BRACKET_PATTERN = re.compile(
+    r'[\[【](op|eb|st|prb)-?\d{1,2}[\]】]', re.IGNORECASE
+)
 
 
 def normalize(text):
-    """全寬字轉半寬，方便regex"""
     return unicodedata.normalize('NFKC', text)
 
 
+def is_opcg_title(title_lower):
+    """判斷係咪OPCG產品"""
+    return (
+        'opcg' in title_lower or
+        '海賊王' in title_lower or
+        'one piece' in title_lower or
+        bool(OPCG_BRACKET_PATTERN.search(title_lower))
+    )
+
+
 def detect_game(title_lower, title_norm_lower):
-    # 非TCG配件優先
     if any(kw in title_lower for kw in NON_TCG_KEYWORDS):
         return set()
     if any(kw in title_lower for kw in ACCESSORY_BRANDS):
         return set()
 
     is_psa = 'psa' in title_lower or '鑑定' in title_lower
-    is_opcg = (
-        'opcg' in title_lower or
-        '海賊王' in title_lower or
-        'one piece' in title_lower or
-        bool(re.search(r'[\[【](op|eb|st|prb)\d{1,2}[\]】]', title_lower))
-    )
-
     games = set()
+
     if is_psa:
         games.add('game-graded')
         if 'psa' in title_lower:
@@ -103,7 +103,7 @@ def detect_game(title_lower, title_norm_lower):
 
     if 'lorcana' in title_lower:
         games.add('game-lorcana')
-    elif is_opcg:
+    elif is_opcg_title(title_lower):
         games.add('game-opcg')
     elif '遊戲王' in title_lower or 'yugioh' in title_lower:
         games.add('game-yugioh')
@@ -124,28 +124,21 @@ def detect_set(title, title_lower, title_norm_lower, handle):
     if any(kw in title_lower for kw in ACCESSORY_BRANDS):
         return None
 
-    # 第一優先：括號內代號 【PRB-02】或 [SV9a] — 用normalize版本
-    bracket_match = re.search(r'[\[【]([A-Za-z]{1,4}-?\d{1,2}[A-Za-z]?)[\]】]', title)
+    # 第一優先：括號內代號 【PRB-02】【OP-12】[SV9a]（含連字號）
+    bracket_match = re.search(r'[\[【]([A-Za-z]{1,4})-?(\d{1,2}[A-Za-z]?)[\]】]', title)
     if bracket_match:
-        raw = bracket_match.group(1).replace('-', '').lower()
+        raw = (bracket_match.group(1) + bracket_match.group(2)).lower()
         if re.search(r'[a-z]', raw):
             return SET_MAP.get(raw, f'set-{raw}')
 
-    # 第二優先：normalize後搵系列（解決SV5aF全寬問題）
-    norm_bracket = re.search(r'[\[【]([A-Za-z]{1,4}-?\d{1,2}[A-Za-z]?)[\]】]', normalize(title))
+    # normalize版本括號（解決全寬字）
+    norm_bracket = re.search(r'[\[【]([A-Za-z]{1,4})-?(\d{1,2}[A-Za-z]?)[\]】]', normalize(title))
     if norm_bracket:
-        raw = norm_bracket.group(1).replace('-', '').lower()
+        raw = (norm_bracket.group(1) + norm_bracket.group(2)).lower()
         if re.search(r'[a-z]', raw):
             return SET_MAP.get(raw, f'set-{raw}')
 
-    # 第三優先：SV系列（包括全寬normalize版）
-    for t in [title_lower, title_norm_lower]:
-        ptcg_match = re.search(r'\b(sv\d+[a-z]{0,2})\b', t)
-        if ptcg_match:
-            code = ptcg_match.group(1)
-            return SET_MAP.get(code, f'set-{code}')
-
-    # 第四優先：OPCG連字號格式 OP-13, PRB-02（排除卡號如OP10-119）
+    # 第二優先：OPCG連字號格式 OP-13, PRB-02（排除卡號如OP10-119）
     opcg_match = re.search(r'(?<!\w)(op|eb|st|prb)-(\d{1,2})(?!\d*-\d{3})\b', title_lower)
     if opcg_match:
         prefix = opcg_match.group(1)
@@ -153,14 +146,21 @@ def detect_set(title, title_lower, title_norm_lower, handle):
         set_code = f"{prefix}{num}"
         return SET_MAP.get(set_code, f'set-{set_code}')
 
-    # 第五優先：舊系列 Ac2a, Ac2b, S1a 等
+    # 第三優先：PTCG SV系列
+    for t in [title_lower, title_norm_lower]:
+        ptcg_match = re.search(r'\b(sv\d+[a-z]{0,2})\b', t)
+        if ptcg_match:
+            code = ptcg_match.group(1)
+            return SET_MAP.get(code, f'set-{code}')
+
+    # 第四優先：舊系列 Ac2a, S1a 等
     old_match = re.search(r'\b(ac\d+[a-z]?|s\d+[a-z]{0,2})\b', title_norm_lower)
     if old_match:
         code = old_match.group(1)
         if code in SET_MAP:
             return SET_MAP[code]
 
-    # 第六優先：M系列括號
+    # 第五優先：M系列括號
     m_match = re.search(r'[\[【](m\d+[a-z]?)[\]】]', title_lower)
     if m_match:
         code = m_match.group(1)
@@ -252,9 +252,10 @@ uploaded_csv = st.file_uploader("📂 上傳 Shopify 產品 CSV", type=["csv"])
 st.subheader("🔍 單一產品測試")
 col1, col2 = st.columns([3, 1])
 with col1:
-    test_title = st.text_input("輸入產品標題測試", placeholder="例如：補充包師徒的情義【OP-12】")
+    test_title = st.text_input("輸入產品標題測試",
+        placeholder="例如：高級補充包ONE PIECE CARD THE BEST【PRB-02】")
 with col2:
-    test_handle = st.text_input("Handle（可空）", placeholder="opcg-op12-xxx")
+    test_handle = st.text_input("Handle（可空）", placeholder="opcg-prb02-xxx")
 
 if test_title:
     result = process_row(test_title, test_handle or '', '')
