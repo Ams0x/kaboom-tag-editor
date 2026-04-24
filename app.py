@@ -3,17 +3,12 @@ import pandas as pd
 import re
 
 st.set_page_config(page_title="KaBoom TCG 官方 Tag 神器", layout="wide")
-st.title("🏷️ KaBoom TCG 官方 Tag 自動化神器 (V4.1)")
-st.write("✅ 正確識別 PRB-02 / EB-01 / ST系列 | ✅ 骰子/非TCG配件唔加game tag | ✅ Handle唔再亂估系列")
+st.title("🏷️ KaBoom TCG 官方 Tag 自動化神器 (V4.2)")
+st.write("✅ 正確識別 PRB-02 / EB-01 / ST系列 | ✅ 配件細分分類 | ✅ 品牌自動識別")
 
-# ==========================================
-# 已知系列對照表
-# ==========================================
 SET_MAP = {
-    # PTCG 繁中 M系列
     'm1l': 'set-m1l', 'm1s': 'set-m1s', 'm2': 'set-m2', 'm2a': 'set-m2a',
     'm3': 'set-m3', 'm4': 'set-m4',
-    # PTCG SV系列
     'sv1s': 'set-sv1s', 'sv1v': 'set-sv1v',
     'sv2d': 'set-sv2d', 'sv2p': 'set-sv2p',
     'sv3': 'set-sv3', 'sv3a': 'set-sv3a',
@@ -25,13 +20,11 @@ SET_MAP = {
     'sv9': 'set-sv9', 'sv9a': 'set-sv9a',
     'sv10': 'set-sv10',
     'sv11b': 'set-sv11b', 'sv11w': 'set-sv11w',
-    # OPCG 補充包
     'op01': 'set-op01', 'op02': 'set-op02', 'op03': 'set-op03',
     'op04': 'set-op04', 'op05': 'set-op05', 'op06': 'set-op06',
     'op07': 'set-op07', 'op08': 'set-op08', 'op09': 'set-op09',
     'op10': 'set-op10', 'op11': 'set-op11', 'op12': 'set-op12',
     'op13': 'set-op13',
-    # OPCG 特別系列
     'prb01': 'set-prb01', 'prb02': 'set-prb02', 'prb03': 'set-prb03',
     'eb01': 'set-eb01', 'eb02': 'set-eb02',
     'st01': 'set-st01', 'st02': 'set-st02', 'st03': 'set-st03',
@@ -43,15 +36,27 @@ SET_MAP = {
     'st19': 'set-st19', 'st20': 'set-st20',
 }
 
-# 非TCG配件關鍵字 — 唔加任何game tag
+# 非TCG配件關鍵字
 NON_TCG_KEYWORDS = [
     'dice', 'd6', 'd20', 'd4', 'd8', 'd10', 'd12',
-    'chessex', 'diceski', 'ultra pro', 'ultrapro',
-    'topper', 'life counter', 'coin', 'token',
+    'chessex', 'diceski', 'life counter', 'coin', 'token',
+    'topper', 'deck box divider', 'card stand',
 ]
 
+# 品牌對照
+BRAND_MAP = {
+    'brand-dragonshield': ['dragon shield', 'dragonshield'],
+    'brand-broccoli':     ['broccoli'],
+    'brand-bushiroad':    ['bushiroad'],
+    'brand-ultrapro':     ['ultra pro', 'ultrapro'],
+    'brand-chessex':      ['chessex', 'diceski'],
+    'brand-konami':       ['konami'],
+    'brand-nintendo':     ['nintendo'],
+    'brand-pokemon':      [],  # 寶可夢特殊處理
+}
+
+
 def detect_game(title_lower):
-    # 非TCG配件優先判斷
     if any(kw in title_lower for kw in NON_TCG_KEYWORDS):
         return set()
 
@@ -81,7 +86,6 @@ def detect_game(title_lower):
 
 
 def detect_set(title, title_lower, handle):
-    # 非TCG配件唔加set
     if any(kw in title_lower for kw in NON_TCG_KEYWORDS):
         return None
 
@@ -90,12 +94,9 @@ def detect_set(title, title_lower, handle):
     if bracket_match:
         raw = bracket_match.group(1).replace('-', '').lower()
         if re.search(r'[a-z]', raw):
-            if raw in SET_MAP:
-                return SET_MAP[raw]
-            return f'set-{raw}'
+            return SET_MAP.get(raw, f'set-{raw}')
 
-    # 第二優先：OPCG連字號格式 OP-13, PRB-02
-    # 用負向lookahead避免匹配卡號如 OP10-119
+    # 第二優先：OPCG連字號格式 OP-13, PRB-02（排除卡號如OP10-119）
     opcg_match = re.search(r'(?<!\w)(op|eb|st|prb)-(\d{1,2})(?!\d*-\d{3})\b', title_lower)
     if opcg_match:
         prefix = opcg_match.group(1)
@@ -115,7 +116,7 @@ def detect_set(title, title_lower, handle):
         code = m_match.group(1)
         return SET_MAP.get(code, f'set-{code}')
 
-    # 終極防線：Handle — 只信任已知對照表，唔亂估
+    # 終極防線：Handle — 只信任已知對照表
     parts = handle.split('-')
     if len(parts) >= 2:
         candidate = parts[1].lower()
@@ -140,11 +141,26 @@ def detect_type(title_lower, is_psa):
         return 'type-mat'
     elif any(kw in title_lower for kw in ['卡盒', 'deckbox', '收納盒']):
         return 'type-deckbox'
+    elif any(kw in title_lower for kw in NON_TCG_KEYWORDS):
+        return 'type-other'
     elif re.search(r'([A-Za-z]{1,4}\d{0,2}-\d{3}|\d{1,3}/\d{1,3})', title_lower) or is_psa:
         return 'type-single'
-    elif any(kw in title_lower for kw in NON_TCG_KEYWORDS):
-        return None  # 骰子等唔加type
     return None
+
+
+def detect_brands(title_lower):
+    brands = set()
+    for brand_tag, keywords in BRAND_MAP.items():
+        if brand_tag == 'brand-pokemon':
+            continue
+        if any(kw in title_lower for kw in keywords):
+            brands.add(brand_tag)
+
+    # 寶可夢品牌：只有係配件先加
+    if '寶可夢' in title_lower and any(kw in title_lower for kw in ['卡套', '卡墊', '卡盒', '收納盒']):
+        brands.add('brand-pokemon')
+
+    return brands
 
 
 def process_row(title, handle, existing_tags_str):
@@ -157,8 +173,7 @@ def process_row(title, handle, existing_tags_str):
     existing_tags_lower = [t.lower() for t in existing_tags]
 
     # 遊戲類別
-    game_tags = detect_game(title_lower)
-    new_tags.update(game_tags)
+    new_tags.update(detect_game(title_lower))
 
     # 語言
     if any(kw in title_lower for kw in ['繁中', '中文']) or handle.upper().startswith('CHI-'):
@@ -175,17 +190,14 @@ def process_row(title, handle, existing_tags_str):
         new_tags.add(type_tag)
 
     # 品牌
-    if 'dragon shield' in title_lower or 'dragonshield' in title_lower:
-        new_tags.add('brand-dragonshield')
-    if '寶可夢' in title_lower and any(kw in title_lower for kw in ['卡套', '卡墊', '卡盒']):
-        new_tags.add('brand-pokemon')
+    new_tags.update(detect_brands(title_lower))
 
     # 系列
     set_tag = detect_set(title, title_lower, handle)
     if set_tag:
         new_tags.add(set_tag)
 
-    # 合併，保留原有tag
+    # 合併保留原有tag
     tags_to_add = [t for t in new_tags if t.lower() not in existing_tags_lower]
     final_tags = existing_tags + sorted(tags_to_add)
     return ", ".join(final_tags)
