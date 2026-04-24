@@ -4,8 +4,8 @@ import re
 import unicodedata
 
 st.set_page_config(page_title="KaBoom TCG 官方 Tag 神器", layout="wide")
-st.title("🏷️ KaBoom TCG 官方 Tag 自動化神器 (V4.6)")
-st.write("✅ 同時分析Title+Tags | ✅ PRB-02正確識別OPCG | ✅ PSA卡唔加set | ✅ 配件唔加game tag")
+st.title("🏷️ KaBoom TCG 官方 Tag 自動化神器 (V4.7)")
+st.write("✅ 修復中文括號誤判 | ✅ 寶可夢中文產品自動加lang-tc | ✅ PRB-02正確識別OPCG")
 
 SET_MAP = {
     'm1l': 'set-m1l', 'm1s': 'set-m1s', 'm2': 'set-m2', 'm2a': 'set-m2a',
@@ -67,6 +67,12 @@ BRAND_MAP = {
     'brand-bcw':           ['bcw'],
 }
 
+# 繁中版識別關鍵字
+LANG_TC_KEYWORDS = [
+    '繁中', '中文', '繁體', '寶可夢集換式卡牌遊戲', '換式卡牌',
+    '朱&紫', '朱＆紫', '劍&盾', '劍＆盾', '太陽&月亮', '太陽＆月亮',
+]
+
 OPCG_BRACKET_PATTERN = re.compile(
     r'[\[【](op|eb|st|prb)-?\d{1,2}[\]】]', re.IGNORECASE
 )
@@ -122,18 +128,19 @@ def detect_set(combined, combined_lower, combined_norm_lower, handle):
     if any(kw in combined_lower for kw in ACCESSORY_BRANDS):
         return None
 
-    # 第一優先：括號內代號 【PRB-02】【OP-12】[SV9a]（含連字號）
+    # 第一優先：括號內代號 — 必須係英文字母開頭，排除中文括號如[500年後的未来]
     bracket_match = re.search(r'[\[【]([A-Za-z]{1,4})-?(\d{1,2}[A-Za-z]?)[\]】]', combined)
     if bracket_match:
         raw = (bracket_match.group(1) + bracket_match.group(2)).lower()
-        if re.search(r'[a-z]', raw):
+        # 確保係純英數，唔含中文
+        if re.match(r'^[a-z0-9]+$', raw):
             return SET_MAP.get(raw, f'set-{raw}')
 
     # normalize版本括號（解決全寬字）
     norm_bracket = re.search(r'[\[【]([A-Za-z]{1,4})-?(\d{1,2}[A-Za-z]?)[\]】]', normalize(combined))
     if norm_bracket:
         raw = (norm_bracket.group(1) + norm_bracket.group(2)).lower()
-        if re.search(r'[a-z]', raw):
+        if re.match(r'^[a-z0-9]+$', raw):
             return SET_MAP.get(raw, f'set-{raw}')
 
     # 第二優先：OPCG連字號格式 OP-13, PRB-02（排除卡號如OP10-119）
@@ -179,7 +186,7 @@ def detect_type(combined_lower, is_psa):
         return 'type-boosterbox'
     elif any(kw in combined_lower for kw in ['單卡', 'single']):
         return 'type-single'
-    elif '禮盒' in combined_lower:
+    elif '禮盒' in combined_lower or '收藏箱' in combined_lower or '紀念箱' in combined_lower:
         return 'type-giftbox'
     elif any(kw in combined_lower for kw in ['卡組', '預組', 'deck']):
         return 'type-deckset'
@@ -196,6 +203,28 @@ def detect_type(combined_lower, is_psa):
     return None
 
 
+def detect_lang(title, combined_lower, handle):
+    title_lower = title.lower()
+    # 繁中關鍵字（title優先）
+    if any(kw in title for kw in LANG_TC_KEYWORDS):
+        return 'lang-tc'
+    if any(kw in title_lower for kw in ['繁中', '中文', '繁體']):
+        return 'lang-tc'
+    # combined搵繁中
+    if any(kw in combined_lower for kw in ['繁中', '中文', '繁體', '繁體中文版', '換式卡牌遊戲']):
+        return 'lang-tc'
+    # Handle
+    if handle.upper().startswith('CHI-'):
+        return 'lang-tc'
+    # 日版
+    if any(kw in title_lower for kw in ['日版', '日文']) or handle.upper().startswith('JPN-'):
+        return 'lang-jp'
+    # 美版
+    if any(kw in title_lower for kw in ['美版', '英文']) or handle.upper().startswith('ENG-'):
+        return 'lang-en'
+    return None
+
+
 def detect_brands(combined_lower):
     brands = set()
     for brand_tag, keywords in BRAND_MAP.items():
@@ -207,7 +236,6 @@ def detect_brands(combined_lower):
 
 
 def process_row(title, handle, existing_tags_str):
-    # 合併Title同現有Tags一齊分析，解決系列資訊喺Tags入面嘅情況
     existing_tags_clean = str(existing_tags_str) if str(existing_tags_str) not in ['nan', ''] else ''
     combined = title + ' ' + existing_tags_clean
     combined_lower = combined.lower()
@@ -221,17 +249,13 @@ def process_row(title, handle, existing_tags_str):
         existing_tags = [t.strip() for t in existing_tags_clean.split(',') if t.strip()]
     existing_tags_lower = [t.lower() for t in existing_tags]
 
-    # 遊戲類別（用combined分析）
+    # 遊戲類別
     new_tags.update(detect_game(combined_lower))
 
-    # 語言（title優先）
-    title_lower = title.lower()
-    if any(kw in title_lower for kw in ['繁中', '中文']) or handle.upper().startswith('CHI-'):
-        new_tags.add('lang-tc')
-    elif any(kw in title_lower for kw in ['日版', '日文']) or handle.upper().startswith('JPN-'):
-        new_tags.add('lang-jp')
-    elif any(kw in title_lower for kw in ['美版', '英文']) or handle.upper().startswith('ENG-'):
-        new_tags.add('lang-en')
+    # 語言
+    lang = detect_lang(title, combined_lower, handle)
+    if lang:
+        new_tags.add(lang)
 
     # 產品類型
     is_psa = 'psa' in combined_lower or '鑑定' in combined_lower
@@ -242,7 +266,7 @@ def process_row(title, handle, existing_tags_str):
     # 品牌
     new_tags.update(detect_brands(combined_lower))
 
-    # 系列（用combined分析）
+    # 系列
     set_tag = detect_set(combined, combined_lower, combined_norm_lower, handle)
     if set_tag:
         new_tags.add(set_tag)
@@ -262,7 +286,7 @@ st.subheader("🔍 單一產品測試")
 col1, col2 = st.columns([3, 1])
 with col1:
     test_title = st.text_input("輸入產品標題測試",
-        placeholder="例如：| CHARACTER 托拉法爾加·羅")
+        placeholder="例如：寶可夢集換式卡牌遊戲 - 劍&盾 - 25週年黃金紀念箱")
 with col2:
     test_handle = st.text_input("Handle（可空）", placeholder="opcg-prb02-xxx")
 
